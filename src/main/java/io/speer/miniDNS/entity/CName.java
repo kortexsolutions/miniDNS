@@ -24,6 +24,6 @@ public class CName {
     @JoinColumn(name = "host_id", referencedColumnName = "host_name")
     private Host host;
 
-    @Column(nullable = false)
+    @Column(name = "alias_to")
     private String alias;
 }

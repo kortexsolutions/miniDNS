@@ -18,7 +18,8 @@ public class ARecord {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    private String value;
+    @Column(name = "ip_address")
+    private String ipAddress;
 
     @ManyToOne
     @JoinColumn(name = "host_id")

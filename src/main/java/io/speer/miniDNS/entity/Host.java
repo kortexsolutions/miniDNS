@@ -1,5 +1,6 @@
 package io.speer.miniDNS.entity;
 
+import io.speer.miniDNS.common.enums.TypeEnum;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -18,9 +19,15 @@ public class Host {
     @Column(name = "host_name", nullable = false, unique = true)
     private String hostName;
 
+    private TypeEnum type;
+
+    @OneToOne(mappedBy = "host")
+    private CName cName;
+
     @OneToMany(mappedBy = "host", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ARecord> records;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 }
+
