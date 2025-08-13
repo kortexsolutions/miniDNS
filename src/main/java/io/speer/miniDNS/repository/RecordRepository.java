@@ -11,5 +11,6 @@ import java.util.Optional;
 @Repository
 public interface RecordRepository extends JpaRepository<ARecord, Long>{
     Optional<ARecord> findById(Long id);
+    ARecord findByIpAddress(String ip);
     List<ARecord> findByHost(Host host);
 }

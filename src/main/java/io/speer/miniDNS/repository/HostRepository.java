@@ -7,5 +7,6 @@ import java.util.Optional;
 
 @Repository
 public interface HostRepository extends JpaRepository<Host, String>{
+    Optional<Host> findById(String hostName);
     Optional<Host> findByHostName(String hostName);
 }
