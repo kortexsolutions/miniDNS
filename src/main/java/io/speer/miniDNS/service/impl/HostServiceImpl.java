@@ -12,6 +12,7 @@ import io.speer.miniDNS.repository.RecordRepository;
 import io.speer.miniDNS.service.HostService;
 import io.speer.miniDNS.service.UtilityService;
 
+import jakarta.transaction.Transactional;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -43,33 +44,43 @@ public class HostServiceImpl implements HostService {
     public HostResponseDto save(HostRequestDto requestHost) {
         LocalDateTime now = LocalDateTime.now();
 
-        TypeEnum type = requestHost.getType().equalsIgnoreCase(TypeEnum.A.getTypeName()) ? TypeEnum.A : TypeEnum.CNAME;
+        TypeEnum type = TypeEnum.A.getTypeName().equalsIgnoreCase(requestHost.getType())
+                ? TypeEnum.A
+                : TypeEnum.CNAME;
+
         String hostName = requestHost.getHostname();
-
         String value = requestHost.getValue();
-        boolean isValid = type.equals(TypeEnum.A) ? _uService.isValidIp(value) : _uService.isValidHostname(hostName);
-
-        if (!_uService.isValidHostname(hostName) || !isValid)
-            throw new ResponseStatusException(HttpStatus.NOT_ACCEPTABLE,"Invalid form field value. Please check format and try again.");
-
-        if (type.equals(TypeEnum.A)) {
-            ARecord existRecord = _rRepo.findByIpAddress(requestHost.getValue());
-
-            if (existRecord != null)
-                throw new ResponseStatusException(HttpStatus.CONFLICT,"This record already exist.");
-        }
 
         Optional<Host> foundHost = _hRepo.findById(hostName);
-        Host host = !foundHost.isPresent() ? null : foundHost.get();
+        boolean validHostName = _uService.isValidHostname(hostName);
 
-        if (host == null) {
+        if (type == TypeEnum.CNAME) {
+            if (!validHostName || !_uService.isValidHostname(value)) {
+                throw new ResponseStatusException(HttpStatus.NOT_ACCEPTABLE,
+                        Message.ERR_FORM);
+            }
+            if (foundHost.isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        Message.ERR_EXIST);
+            }
+        } else if (type == TypeEnum.A) {
+            if (!validHostName || !_uService.isValidIp(value)) {
+                throw new ResponseStatusException(HttpStatus.NOT_ACCEPTABLE,
+                        Message.ERR_FORM);
+            }
+            if (_rRepo.findByIpAddress(value) != null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        Message.ERR_EXIST);
+            }
+        }
+
+        Host host = foundHost.orElseGet(() -> {
             Host newHost = new Host();
             newHost.setCreatedAt(now);
             newHost.setHostName(hostName);
-
             newHost.setType(type);
-            host = _hRepo.save(newHost);
-        }
+            return _hRepo.save(newHost);
+        });
 
         HostResponseDto response = type.equals(TypeEnum.A) ? addRecord(host, requestHost) : addCName(host, requestHost);
         return response;
@@ -132,6 +143,7 @@ public class HostServiceImpl implements HostService {
         try {
             Host host = foundHost.get();
             response = new HostListResponseDto();
+
             response.setHostName(host.getHostName());
             List<RecordResponseDto> records = new ArrayList<>();
 
@@ -142,6 +154,7 @@ public class HostServiceImpl implements HostService {
                 if (parent.isPresent()) {
                     for (ARecord r : parent.get().getRecords()) {
                         RecordResponseDto record = new RecordResponseDto();
+
                         record.setType(r.getHost().getType().getTypeName());
                         record.setValue(r.getIpAddress());
                         records.add(record);
@@ -150,6 +163,7 @@ public class HostServiceImpl implements HostService {
             } else {
                 for (ARecord r : host.getRecords()) {
                     RecordResponseDto record = new RecordResponseDto();
+
                     record.setType(r.getHost().getType().getTypeName());
                     record.setValue(r.getIpAddress());
                     records.add(record);
@@ -162,6 +176,46 @@ public class HostServiceImpl implements HostService {
         }
 
         return response;
+    }
+
+    @Override
+    @Transactional
+    public boolean remove(String hostname, String type, String value) {
+        Optional<Host> foundHost = _hRepo.findByHostName(hostname);
+        if (foundHost.isEmpty())
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, Message.NOT_FOUND, null);
+
+        try {
+            Host host = foundHost.get();
+            if (type.equalsIgnoreCase(TypeEnum.A.getTypeName())) {
+                ARecord target = null;
+                List<ARecord> records = host.getRecords();
+
+                if (!records.isEmpty()) {
+                    for (ARecord r : records) {
+                        if (r.getIpAddress().equalsIgnoreCase(value)) {
+                            try {
+                                target = r;
+                                _rRepo.delete(r);
+                            } catch (Exception ex) {
+                                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+                            }
+                        }
+                    }
+
+                    records.remove(target);
+                }
+
+                if (records.isEmpty() || records.size() < 1) _hRepo.delete(host);
+            } else {
+                CName foundCName = host.getCName();
+                if (foundCName != null) _cRepo.delete(foundCName);
+                _hRepo.delete(host);
+            }
+            return true;
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+        }
     }
 
 
@@ -201,21 +255,24 @@ public class HostServiceImpl implements HostService {
         LocalDateTime now = LocalDateTime.now();
         List<ARecord> foundRecords = _rRepo.findByHost(host);
 
-        if (!foundRecords.isEmpty())
+        if (!foundRecords.isEmpty()) {
+            _hRepo.delete(host);
             throw new ResponseStatusException(HttpStatus.CONFLICT, Message.EXIST_RECORD, null);
+        }
 
         CName foundCName = _cRepo.findByHost(host);
         if (foundCName == null) {
             CName cName = new CName();
             cName.setHost(host);
             cName.setCreatedAt(now);
-            Host link = null;
 
-            if (!this.circularChainValidation(newHost.getValue())) {
-                link = _hRepo.findByHostName(newHost.getValue()).get();
+            if (this.circularChainValidation(newHost.getValue())) {
+                _hRepo.delete(host);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, Message.INVL_LNK, null);
             }
 
-            cName.setAlias(link != null ? link.getHostName() : null);
+            Optional<Host> link = _hRepo.findByHostName(newHost.getValue());
+            cName.setAlias(link.isPresent() ? link.get().getHostName() : newHost.getValue());
             foundCName = _cRepo.save(cName);
         }
 
@@ -226,28 +283,28 @@ public class HostServiceImpl implements HostService {
 
     }
 
-
     /*******************************************************************************************************************
      *   @circularChainValidation: This function is used to determine if circular reference exist
      *   @params h: Accepts exiting Host entity object
      *   @return exist: Returns a boolean value
      ******************************************************************************************************************/
     private boolean circularChainValidation(String value) {
-        boolean exist = false;
         Set<String> visited = new HashSet<>();
         String current = value.toLowerCase();
 
         while (current != null) {
-            if (visited.contains(current)) {
-                exist = true;
-                break;
+            if (!visited.add(current)) {
+                return true;
             }
 
-            visited.add(current.toLowerCase());
-            Host host = _hRepo.findByHostName(current).get();
-            current = (host.getCName() != null) ? host.getCName().getAlias() : null;
+            Optional<Host> host = _hRepo.findByHostName(current);
+            if (host.isEmpty() || host.get().getCName() == null) {
+                return false;
+            }
+
+            current = host.get().getCName().getAlias().toLowerCase();
         }
 
-        return exist;
+        return false;
     }
 }
