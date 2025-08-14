@@ -7,7 +7,7 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class HostRequestDto {
-    private String hostName;
+    private String hostname;
     private String type;
     private String value;
 }

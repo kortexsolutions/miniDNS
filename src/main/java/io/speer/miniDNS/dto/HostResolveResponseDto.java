@@ -5,16 +5,16 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
 
-import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 @ToString
 @NoArgsConstructor
 @AllArgsConstructor
-public class HostResponseDto {
+public class HostResolveResponseDto {
     private String hostName;
-    private String type;
-    private String value;
-    private LocalDateTime createdAt;
+    private String pointTo;
+    private String recordType;
+    private List<String> resolveIps;
 }
 
