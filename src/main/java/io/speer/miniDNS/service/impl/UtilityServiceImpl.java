@@ -9,7 +9,11 @@ import java.util.regex.Pattern;
 @Service
 public class UtilityServiceImpl implements UtilityService {
     /* RFC 1123-compliant regex (allows subdomains, max length per label is 63 chars) */
-    private static final String HOSTNAME_REGEX = "^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$";
+    private static final String HOSTNAME_REGEX = "^(?!\\d+\\.\\d+\\.\\d+\\.\\d+)(?!" +                 // not IPv4
+            "\\[?[0-9a-fA-F:]+\\]?$)" +                            // not IPv6
+            "(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)" +
+            "(\\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))*$";;
+
     private static final Pattern HOSTNAME_PATTERN = Pattern.compile(HOSTNAME_REGEX);
 
     private InetAddressValidator validator = InetAddressValidator.getInstance();
